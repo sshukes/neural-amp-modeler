@@ -8,6 +8,14 @@ with:
 
     $ nam
 
+Windows quick start
+-------------------
+
+#. Install dependencies and create/activate a virtual environment.
+#. Install NAM and launch the GUI with ``nam``.
+#. Export your reamp as a 48 kHz / 24-bit WAV file.
+#. Train and save your model to a folder you control.
+
 You'll see a GUI like this:
 
 .. image:: media/gui/gui.png
@@ -57,3 +65,60 @@ see a plot that compares the model's prediction against your recording:
 Close that plot, and your model will be saved. To use it, point 
 `the plugin <https://github.com/sdatkinson/NeuralAmpModelerPlugin>`_ at the file
 and you're good to go!
+
+Windows setup and tips
+----------------------
+
+Installing dependencies and activating the environment
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Install Python 3.10+ (from python.org) and Git. Then, from PowerShell in the
+repository root:
+
+.. code-block:: console
+
+    PS> py -3 -m venv .venv
+    PS> .\.venv\Scripts\Activate.ps1
+    PS> python -m pip install --upgrade pip
+    PS> pip install -e .
+
+If you are using Command Prompt instead of PowerShell, activate with:
+
+.. code-block:: console
+
+    C:\> .\.venv\Scripts\activate.bat
+
+Launching the GUI
+^^^^^^^^^^^^^^^^^
+
+With the environment activated, run:
+
+.. code-block:: console
+
+    PS> nam
+
+If the ``nam`` entry point is not on your PATH, you can use:
+
+.. code-block:: console
+
+    PS> python -m nam.train.gui
+
+Windows file locations
+^^^^^^^^^^^^^^^^^^^^^^
+
+* GUI parameter history is stored in
+  ``%USERPROFILE%\.nam\train_gui\parameters.json``.
+* The GUI also saves its last-used paths in the installed package directory
+  (``...\\site-packages\\nam\\train\\gui\\_resources\\settings.json``). This
+  location depends on where Python is installed.
+* Trained models are saved wherever you choose in the GUI, so pick a folder
+  you own (for example, ``%USERPROFILE%\\Documents\\NAM Models``).
+
+Windows audio export settings and troubleshooting
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* Export or render as PCM WAV at 48 kHz / 24-bit (mono if possible).
+* Disable any automatic sample-rate conversion, normalization, or
+  loudness/podcast processing in your DAW or audio editor.
+* If the trainer warns about sample rate or bit depth, re-export using the
+  exact 48 kHz / 24-bit settings and verify the file length matches the input.
