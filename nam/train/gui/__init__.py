@@ -11,6 +11,7 @@ Usage:
 """
 
 import abc as _abc
+import json as _json
 import re as _re
 import requests as _requests
 import tkinter as _tk
@@ -52,6 +53,7 @@ try:  # 3rd-party and 1st-party imports
     from nam.data import Split as _Split
     from nam.train import core as _core
     from nam.train.gui._resources import settings as _settings
+    from nam.train.gui._resources import parameters as _parameters
     from nam.models.metadata import (
         GearType as _GearType,
         UserMetadata as _UserMetadata,
@@ -90,6 +92,11 @@ _TEXT_WIDTH = 70
 _DEFAULT_DELAY = None
 _DEFAULT_IGNORE_CHECKS = False
 _DEFAULT_THRESHOLD_ESR = None
+_DEFAULT_LR = 0.004
+_DEFAULT_SEED = 0
+_DEFAULT_MODEL_TYPE = "WaveNet"
+_DEFAULT_NY = _core._NY_DEFAULT
+_DEFAULT_FIT_MRSTFT = True
 
 _ADVANCED_OPTIONS_LEFT_WIDTH = 12
 _ADVANCED_OPTIONS_RIGHT_WIDTH = 12
@@ -111,6 +118,13 @@ class AdvancedOptions(object):
     :param num_epochs: How many epochs to train for.
     :param latency: Latency between the input and output audio, in samples.
         None means we don't know and it has to be calibrated.
+    :param model_type: Type of model to train.
+    :param lr: Learning rate.
+    :param lr_decay: Learning rate decay.
+    :param batch_size: Training batch size.
+    :param seed: Random seed for training.
+    :param ny: Number of output samples per datum.
+    :param fit_mrstft: Use the MRSTFT pre-emphasis loss.
     :param ignore_checks: Keep going even if a check says that something is wrong.
     :param threshold_esr: Stop training if the ESR gets better than this. If None, don't
         stop.
@@ -119,6 +133,13 @@ class AdvancedOptions(object):
     architecture: _core.Architecture
     num_epochs: int
     latency: _Optional[int]
+    model_type: str
+    lr: float
+    lr_decay: float
+    batch_size: int
+    seed: _Optional[int]
+    ny: int
+    fit_mrstft: bool
     ignore_checks: bool
     threshold_esr: _Optional[float]
 
@@ -127,6 +148,11 @@ class _PathType(_Enum):
     FILE = "file"
     DIRECTORY = "directory"
     MULTIFILE = "multifile"
+
+
+class _ModelType(_Enum):
+    WAVENET = "WaveNet"
+    LSTM = "LSTM"
 
 
 class _PathButton(object):
@@ -192,6 +218,18 @@ class _PathButton(object):
     @property
     def val(self) -> _Optional[_Path]:
         return self._path
+
+    def set_path(self, path: _Optional[_Path]):
+        self._path = path
+        if path is not None:
+            resolved = path
+            if self._path_type == _PathType.MULTIFILE:
+                resolved = path[0] if isinstance(path, (tuple, list)) else path
+            _settings.set_last_path(self._path_key, _Path(resolved))
+        self._set_text()
+        if self._hooks is not None:
+            for h in self._hooks:
+                h()
 
     def _set_text(self):
         if self._path is None:
@@ -397,6 +435,8 @@ class _GUIWidgets(_Enum):
     OUTPUT_PATH = "output_path"
     TRAINING_DESTINATION = "training_destination"
     METADATA = "metadata"
+    PARAMETERS_SAVE = "parameters_save"
+    PARAMETERS_LOAD = "parameters_load"
     ADVANCED_OPTIONS = "advanced_options"
     TRAIN = "train"
     UPDATE = "update"
@@ -462,6 +502,30 @@ class GUI(object):
         self._widgets["metadata"].pack()
         self.user_metadata_flag = False
 
+        # Parameters
+        self._frame_parameters = _tk.Frame(self._root)
+        self._frame_parameters.pack(anchor="w")
+        self._parameters_label = _tk.Label(
+            self._frame_parameters, text="Parameters", width=_BUTTON_WIDTH
+        )
+        self._parameters_label.pack(side=_tk.LEFT)
+        self._widgets[_GUIWidgets.PARAMETERS_SAVE] = _tk.Button(
+            self._frame_parameters,
+            text="Save Parameters...",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            command=self._save_parameters,
+        )
+        self._widgets[_GUIWidgets.PARAMETERS_SAVE].pack(side=_tk.LEFT)
+        self._widgets[_GUIWidgets.PARAMETERS_LOAD] = _tk.Button(
+            self._frame_parameters,
+            text="Load Parameters...",
+            width=_BUTTON_WIDTH,
+            height=_BUTTON_HEIGHT,
+            command=self._load_parameters,
+        )
+        self._widgets[_GUIWidgets.PARAMETERS_LOAD].pack(side=_tk.LEFT)
+
         # This should probably be to the right somewhere
         self._get_additional_options_frame()
 
@@ -480,6 +544,13 @@ class GUI(object):
             default_architecture,
             _DEFAULT_NUM_EPOCHS,
             _DEFAULT_DELAY,
+            _DEFAULT_MODEL_TYPE,
+            _DEFAULT_LR,
+            _DEFAULT_LR_DECAY,
+            _DEFAULT_BATCH_SIZE,
+            _DEFAULT_SEED,
+            _DEFAULT_NY,
+            _DEFAULT_FIT_MRSTFT,
             _DEFAULT_IGNORE_CHECKS,
             _DEFAULT_THRESHOLD_ESR,
         )
@@ -514,10 +585,12 @@ class GUI(object):
         Get any additional kwargs to provide to `core.train`
         """
         return {
-            "lr": 0.004,
-            "lr_decay": _DEFAULT_LR_DECAY,
-            "batch_size": _DEFAULT_BATCH_SIZE,
-            "seed": 0,
+            "lr": self.advanced_options.lr,
+            "lr_decay": self.advanced_options.lr_decay,
+            "batch_size": self.advanced_options.batch_size,
+            "seed": self.advanced_options.seed,
+            "model_type": self.advanced_options.model_type,
+            "ny": self.advanced_options.ny,
         }
 
     def get_mrstft_fit(self) -> bool:
@@ -530,7 +603,7 @@ class GUI(object):
         """
         # Leave this as a public method to anticipate an extension to make it
         # changeable.
-        return True
+        return self.advanced_options.fit_mrstft
 
     def _check_button_states(self):
         """
@@ -696,6 +769,156 @@ class GUI(object):
         for widget in self._widgets.values():
             widget["state"] = state
 
+    def _get_parameters_payload(self) -> _Dict[str, _Any]:
+        def as_str(val):
+            return None if val is None else str(val)
+
+        input_path = self._widgets[_GUIWidgets.INPUT_PATH].val
+        output_paths = self._widgets[_GUIWidgets.OUTPUT_PATH].val
+        training_destination = self._widgets[_GUIWidgets.TRAINING_DESTINATION].val
+        return {
+            "paths": {
+                "input_path": as_str(input_path),
+                "output_paths": [
+                    str(path) for path in (output_paths or [])
+                ],
+                "training_destination": as_str(training_destination),
+            },
+            "metadata": self.user_metadata.model_dump(mode="json"),
+            "metadata_enabled": self.user_metadata_flag,
+            "advanced_options": {
+                "architecture": self.advanced_options.architecture.value,
+                "num_epochs": self.advanced_options.num_epochs,
+                "latency": self.advanced_options.latency,
+                "model_type": self.advanced_options.model_type,
+                "lr": self.advanced_options.lr,
+                "lr_decay": self.advanced_options.lr_decay,
+                "batch_size": self.advanced_options.batch_size,
+                "seed": self.advanced_options.seed,
+                "ny": self.advanced_options.ny,
+                "fit_mrstft": self.advanced_options.fit_mrstft,
+                "ignore_checks": self.advanced_options.ignore_checks,
+                "threshold_esr": self.advanced_options.threshold_esr,
+            },
+            "checkboxes": {
+                _CheckboxKeys.SILENT_TRAINING.value: self._checkboxes[
+                    _CheckboxKeys.SILENT_TRAINING
+                ].variable.get(),
+                _CheckboxKeys.SAVE_PLOT.value: self._checkboxes[
+                    _CheckboxKeys.SAVE_PLOT
+                ].variable.get(),
+            },
+        }
+
+    def _apply_parameters_payload(self, payload: _Dict[str, _Any]):
+        paths = payload.get("paths", {})
+        input_path = paths.get("input_path")
+        output_paths = paths.get("output_paths", [])
+        training_destination = paths.get("training_destination")
+
+        self._widgets[_GUIWidgets.INPUT_PATH].set_path(
+            None if input_path is None else _Path(input_path)
+        )
+        self._widgets[_GUIWidgets.OUTPUT_PATH].set_path(
+            tuple(output_paths) if output_paths else None
+        )
+        self._widgets[_GUIWidgets.TRAINING_DESTINATION].set_path(
+            None if training_destination is None else _Path(training_destination)
+        )
+
+        metadata = payload.get("metadata", {})
+        if isinstance(metadata, dict):
+            self.user_metadata = _UserMetadata(**metadata)
+        self.user_metadata_flag = payload.get(
+            "metadata_enabled",
+            any(value is not None for value in self.user_metadata.model_dump().values()),
+        )
+
+        advanced = payload.get("advanced_options", {})
+        if "architecture" in advanced:
+            try:
+                self.advanced_options.architecture = _core.Architecture(
+                    advanced["architecture"]
+                )
+            except ValueError:
+                pass
+        if "num_epochs" in advanced:
+            self.advanced_options.num_epochs = advanced["num_epochs"]
+        if "latency" in advanced:
+            self.advanced_options.latency = advanced["latency"]
+        if "model_type" in advanced:
+            model_type = advanced["model_type"]
+            try:
+                self.advanced_options.model_type = _ModelType(model_type).value
+            except ValueError:
+                self.advanced_options.model_type = model_type
+        if "lr" in advanced:
+            self.advanced_options.lr = advanced["lr"]
+        if "lr_decay" in advanced:
+            self.advanced_options.lr_decay = advanced["lr_decay"]
+        if "batch_size" in advanced:
+            self.advanced_options.batch_size = advanced["batch_size"]
+        if "seed" in advanced:
+            self.advanced_options.seed = advanced["seed"]
+        if "ny" in advanced:
+            self.advanced_options.ny = advanced["ny"]
+        if "fit_mrstft" in advanced:
+            self.advanced_options.fit_mrstft = advanced["fit_mrstft"]
+        if "ignore_checks" in advanced:
+            self.advanced_options.ignore_checks = advanced["ignore_checks"]
+        if "threshold_esr" in advanced:
+            self.advanced_options.threshold_esr = advanced["threshold_esr"]
+
+        checkboxes = payload.get("checkboxes", {})
+        if _CheckboxKeys.SILENT_TRAINING.value in checkboxes:
+            self._checkboxes[_CheckboxKeys.SILENT_TRAINING].variable.set(
+                bool(checkboxes[_CheckboxKeys.SILENT_TRAINING.value])
+            )
+        if _CheckboxKeys.SAVE_PLOT.value in checkboxes:
+            self._checkboxes[_CheckboxKeys.SAVE_PLOT].variable.set(
+                bool(checkboxes[_CheckboxKeys.SAVE_PLOT.value])
+            )
+
+    def _save_parameters(self):
+        last_path = _parameters.get_last_parameter_file()
+        if last_path is None:
+            initial_dir = None
+        elif not last_path.is_dir():
+            initial_dir = last_path.parent
+        else:
+            initial_dir = last_path
+        filename = _filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialdir=str(initial_dir) if initial_dir is not None else None,
+        )
+        if filename == "":
+            return
+        payload = self._get_parameters_payload()
+        with open(filename, "w") as fp:
+            _json.dump(payload, fp, indent=4)
+        _parameters.set_last_parameter_file(_Path(filename))
+
+    def _load_parameters(self):
+        last_path = _parameters.get_last_parameter_file()
+        if last_path is None:
+            initial_dir = None
+        elif not last_path.is_dir():
+            initial_dir = last_path.parent
+        else:
+            initial_dir = last_path
+        filename = _filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialdir=str(initial_dir) if initial_dir is not None else None,
+        )
+        if filename == "":
+            return
+        with open(filename, "r") as fp:
+            payload = _json.load(fp)
+        if isinstance(payload, dict):
+            self._apply_parameters_payload(payload)
+        _parameters.set_last_parameter_file(_Path(filename))
+
     def _train(self):
         input_path = self._widgets[_GUIWidgets.INPUT_PATH].val
         output_paths = self._widgets[_GUIWidgets.OUTPUT_PATH].val
@@ -715,6 +938,7 @@ class GUI(object):
         threshold_esr = self.advanced_options.threshold_esr
 
         # Run it
+        effective_ignore_checks = ignore_checks or self.advanced_options.ignore_checks
         for file in file_list:
             print(f"Now training {file}")
             basename = _re.sub(r"\.wav$", "", file.split("/")[-1])
@@ -732,7 +956,7 @@ class GUI(object):
                 silent=self._checkboxes[_CheckboxKeys.SILENT_TRAINING].variable.get(),
                 save_plot=self._checkboxes[_CheckboxKeys.SAVE_PLOT].variable.get(),
                 modelname=basename,
-                ignore_checks=ignore_checks,
+                ignore_checks=effective_ignore_checks,
                 local=True,
                 fit_mrstft=self.get_mrstft_fit(),
                 threshold_esr=threshold_esr,
@@ -1088,6 +1312,41 @@ class LabeledText(_SettingWidget):
         return self._type(self._text.get("1.0", _tk.END))
 
 
+class LabeledCheckbox(_SettingWidget):
+    """
+    Label (left) and checkbox (right)
+    """
+
+    def __init__(
+        self,
+        frame: _tk.Frame,
+        label: str,
+        default: bool = False,
+        left_width=_ADVANCED_OPTIONS_LEFT_WIDTH,
+        right_width=_ADVANCED_OPTIONS_RIGHT_WIDTH,
+    ):
+        self._frame = frame
+        height = _BUTTON_HEIGHT
+        bg = None
+        self._label = _tk.Label(
+            frame,
+            width=left_width,
+            height=height,
+            bg=bg,
+            anchor="e",
+            text=label,
+        )
+        self._label.pack(side=_tk.LEFT)
+        self._value = _tk.BooleanVar()
+        self._value.set(default)
+        self._checkbox = _tk.Checkbutton(frame, variable=self._value)
+        self._checkbox.config(width=right_width)
+        self._checkbox.pack(side=_tk.RIGHT)
+
+    def get(self) -> bool:
+        return bool(self._value.get())
+
+
 class AdvancedOptionsGUI(object):
     """
     A window to hold advanced options (Architecture and number of epochs)
@@ -1119,14 +1378,28 @@ class AdvancedOptionsGUI(object):
 
         def safe_apply(name):
             try:
-                setattr(
-                    self._parent.advanced_options, name, getattr(self, "_" + name).get()
-                )
+                value = getattr(self, "_" + name).get()
+                if name == "model_type":
+                    value = value.value
+                setattr(self._parent.advanced_options, name, value)
             except ValueError:
                 pass
 
         # TODO could clean up more / see `.pack_options()`
-        for name in ("architecture", "num_epochs", "latency", "threshold_esr"):
+        for name in (
+            "architecture",
+            "num_epochs",
+            "latency",
+            "model_type",
+            "lr",
+            "lr_decay",
+            "batch_size",
+            "seed",
+            "ny",
+            "fit_mrstft",
+            "ignore_checks",
+            "threshold_esr",
+        ):
             safe_apply(name)
 
     def pack(self):
@@ -1163,6 +1436,88 @@ class AdvancedOptionsGUI(object):
             "Reamp latency",
             default=_int_or_null.inverse(self._parent.advanced_options.latency),
             type=_int_or_null.forward,
+        )
+
+        # Model type
+        self._frame_model_type = _tk.Frame(self._root)
+        self._frame_model_type.pack()
+        try:
+            model_type_default = _ModelType(self._parent.advanced_options.model_type)
+        except ValueError:
+            model_type_default = _ModelType.WAVENET
+        self._model_type = LabeledOptionMenu(
+            self._frame_model_type,
+            "Model type",
+            _ModelType,
+            default=model_type_default,
+        )
+
+        # Learning rate
+        self._frame_lr = _tk.Frame(self._root)
+        self._frame_lr.pack()
+        self._lr = LabeledText(
+            self._frame_lr,
+            "Learning rate",
+            default=str(self._parent.advanced_options.lr),
+            type=float,
+        )
+
+        # Learning rate decay
+        self._frame_lr_decay = _tk.Frame(self._root)
+        self._frame_lr_decay.pack()
+        self._lr_decay = LabeledText(
+            self._frame_lr_decay,
+            "LR decay",
+            default=str(self._parent.advanced_options.lr_decay),
+            type=float,
+        )
+
+        # Batch size
+        self._frame_batch_size = _tk.Frame(self._root)
+        self._frame_batch_size.pack()
+        self._batch_size = LabeledText(
+            self._frame_batch_size,
+            "Batch size",
+            default=str(self._parent.advanced_options.batch_size),
+            type=_non_negative_int,
+        )
+
+        # Seed
+        self._frame_seed = _tk.Frame(self._root)
+        self._frame_seed.pack()
+        self._seed = LabeledText(
+            self._frame_seed,
+            "Seed",
+            default=_int_or_null.inverse(self._parent.advanced_options.seed),
+            type=_int_or_null.forward,
+        )
+
+        # Ny
+        self._frame_ny = _tk.Frame(self._root)
+        self._frame_ny.pack()
+        self._ny = LabeledText(
+            self._frame_ny,
+            "Ny",
+            default=str(self._parent.advanced_options.ny),
+            type=_non_negative_int,
+        )
+
+        # Fit MRSTFT
+        self._frame_fit_mrstft = _tk.Frame(self._root)
+        self._frame_fit_mrstft.pack()
+        self._fit_mrstft = LabeledCheckbox(
+            self._frame_fit_mrstft,
+            "Fit MRSTFT",
+            default=self._parent.advanced_options.fit_mrstft,
+        )
+
+        # Ignore checks
+        self._frame_ignore_checks = _tk.Frame(self._root)
+        self._frame_ignore_checks.pack()
+        self._ignore_checks = LabeledCheckbox(
+            self._frame_ignore_checks,
+            "Ignore checks",
+            default=self._parent.advanced_options.ignore_checks,
         )
 
         # Threshold ESR
