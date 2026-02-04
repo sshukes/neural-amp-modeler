@@ -12,7 +12,8 @@ Windows quick start
 -------------------
 
 #. Install dependencies and create/activate a virtual environment.
-#. Install NAM and launch the GUI with ``nam``.
+#. Install NAM and launch the GUI with ``nam`` (or ``nam-gui`` for a GUI-only
+   launcher).
 #. Export your reamp as a 48 kHz / 24-bit WAV file.
 #. Train and save your model to a folder you control.
 
@@ -96,6 +97,13 @@ With the environment activated, run:
 .. code-block:: console
 
     PS> nam
+
+On Windows, you can also use the GUI-only launcher to avoid opening a console
+window:
+
+.. code-block:: console
+
+    PS> nam-gui
 
 If the ``nam`` entry point is not on your PATH, you can use:
 

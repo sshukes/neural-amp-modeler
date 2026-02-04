@@ -50,6 +50,9 @@ nam = "nam.cli:nam_gui"
 nam-full = "nam.cli:nam_full"
 nam-hello-world = "nam.cli:nam_hello_world"
 
+[project.gui-scripts]
+nam-gui = "nam.cli:nam_gui"
+
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
 local_scheme = "no-local-version"
