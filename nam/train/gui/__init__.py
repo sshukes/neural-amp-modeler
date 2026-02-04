@@ -88,6 +88,13 @@ else:
 _BUTTON_WIDTH = 20
 _BUTTON_HEIGHT = 2
 _TEXT_WIDTH = 70
+_SPACING_8 = 8
+_SPACING_16 = 16
+_SPACING_24 = 24
+_PRIMARY_BUTTON_BG = "#2563eb"
+_PRIMARY_BUTTON_FG = "white"
+_SECONDARY_BUTTON_BG = "#f8fafc"
+_SECONDARY_BUTTON_FG = "black"
 
 _DEFAULT_DELAY = None
 _DEFAULT_IGNORE_CHECKS = False
@@ -189,7 +196,9 @@ class _PathButton(object):
             height=_BUTTON_HEIGHT,
             command=self._set_val,
         )
-        self._widgets["button"].pack(side=_tk.LEFT)
+        self._widgets["button"].grid(
+            row=0, column=0, sticky="w", padx=(0, _SPACING_8)
+        )
         self._widgets["label"] = _tk.Label(
             self._frame,
             width=_TEXT_WIDTH,
@@ -197,7 +206,8 @@ class _PathButton(object):
             bg=None,
             anchor="w",
         )
-        self._widgets["label"].pack(side=_tk.LEFT)
+        self._widgets["label"].grid(row=0, column=1, sticky="ew")
+        self._frame.columnconfigure(1, weight=1)
         self._hooks = hooks
         self._color_when_not_set = color_when_not_set
         self._color_when_set = color_when_set
@@ -280,7 +290,10 @@ class _InputPathButton(_PathButton):
             height=_BUTTON_HEIGHT,
             command=self._download_input_file,
         )
-        self._widgets["button_download_input"].pack(side=_tk.RIGHT)
+        self._widgets["button_download_input"].grid(
+            row=0, column=2, sticky="e", padx=(_SPACING_8, 0)
+        )
+        self._frame.columnconfigure(2, weight=0)
 
     @classmethod
     def _download_input_file(cls):
@@ -454,9 +467,21 @@ class GUI(object):
         self._root.title(f"NAM Trainer - v{__version__}")
         self._widgets = {}
 
+        self._content = _tk.Frame(self._root, padx=_SPACING_24, pady=_SPACING_24)
+        self._content.pack(fill=_tk.BOTH, expand=True)
+        self._content.columnconfigure(0, weight=1)
+
+        self._section_audio = _tk.LabelFrame(
+            self._content, text="Audio Files", padx=_SPACING_16, pady=_SPACING_16
+        )
+        self._section_audio.grid(
+            row=0, column=0, sticky="ew", pady=(0, _SPACING_16)
+        )
+        self._section_audio.columnconfigure(0, weight=1)
+
         # Buttons for paths:
-        self._frame_input = _tk.Frame(self._root)
-        self._frame_input.pack(anchor="w")
+        self._frame_input = _tk.Frame(self._section_audio)
+        self._frame_input.grid(row=0, column=0, sticky="ew", pady=(0, _SPACING_8))
         self._widgets[_GUIWidgets.INPUT_PATH] = _InputPathButton(
             self._frame_input,
             "Input Audio",
@@ -466,8 +491,8 @@ class GUI(object):
             hooks=[self._check_button_states],
         )
 
-        self._frame_output_path = _tk.Frame(self._root)
-        self._frame_output_path.pack(anchor="w")
+        self._frame_output_path = _tk.Frame(self._section_audio)
+        self._frame_output_path.grid(row=1, column=0, sticky="ew", pady=(0, _SPACING_8))
         self._widgets[_GUIWidgets.OUTPUT_PATH] = _PathButton(
             self._frame_output_path,
             "Output Audio",
@@ -477,8 +502,8 @@ class GUI(object):
             hooks=[self._check_button_states],
         )
 
-        self._frame_train_destination = _tk.Frame(self._root)
-        self._frame_train_destination.pack(anchor="w")
+        self._frame_train_destination = _tk.Frame(self._section_audio)
+        self._frame_train_destination.grid(row=2, column=0, sticky="ew")
         self._widgets[_GUIWidgets.TRAINING_DESTINATION] = _PathButton(
             self._frame_train_destination,
             "Train Destination",
@@ -490,53 +515,95 @@ class GUI(object):
 
         # Metadata
         self.user_metadata = _UserMetadata()
-        self._frame_metadata = _tk.Frame(self._root)
-        self._frame_metadata.pack(anchor="w")
+        self._section_metadata = _tk.LabelFrame(
+            self._content, text="Metadata", padx=_SPACING_16, pady=_SPACING_16
+        )
+        self._section_metadata.grid(
+            row=1, column=0, sticky="ew", pady=(0, _SPACING_16)
+        )
+        self._section_metadata.columnconfigure(0, weight=1)
+        self._frame_metadata = _tk.Frame(self._section_metadata)
+        self._frame_metadata.grid(row=0, column=0, sticky="ew")
+        self._frame_metadata.columnconfigure(1, weight=1)
+        self._metadata_label = _tk.Label(self._frame_metadata, text="Model metadata")
+        self._metadata_label.grid(
+            row=0, column=0, sticky="w", padx=(0, _SPACING_8)
+        )
         self._widgets["metadata"] = _tk.Button(
             self._frame_metadata,
-            text="Metadata...",
+            text="Edit Metadata...",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=self._open_metadata,
+            relief=_tk.GROOVE,
+            bg=_SECONDARY_BUTTON_BG,
+            fg=_SECONDARY_BUTTON_FG,
         )
-        self._widgets["metadata"].pack()
+        self._widgets["metadata"].grid(row=0, column=1, sticky="w")
         self.user_metadata_flag = False
 
         # Parameters
-        self._frame_parameters = _tk.Frame(self._root)
-        self._frame_parameters.pack(anchor="w")
-        self._parameters_label = _tk.Label(
-            self._frame_parameters, text="Parameters", width=_BUTTON_WIDTH
+        self._section_parameters = _tk.LabelFrame(
+            self._content, text="Parameters", padx=_SPACING_16, pady=_SPACING_16
         )
-        self._parameters_label.pack(side=_tk.LEFT)
+        self._section_parameters.grid(
+            row=2, column=0, sticky="ew", pady=(0, _SPACING_16)
+        )
+        self._section_parameters.columnconfigure(1, weight=1)
+        self._frame_parameters = _tk.Frame(self._section_parameters)
+        self._frame_parameters.grid(row=0, column=0, sticky="ew")
+        self._frame_parameters.columnconfigure(3, weight=1)
+        self._parameters_label = _tk.Label(
+            self._frame_parameters, text="Training parameters"
+        )
+        self._parameters_label.grid(
+            row=0, column=0, sticky="w", padx=(0, _SPACING_8)
+        )
         self._widgets[_GUIWidgets.PARAMETERS_SAVE] = _tk.Button(
             self._frame_parameters,
             text="Save Parameters...",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=self._save_parameters,
+            relief=_tk.GROOVE,
+            bg=_SECONDARY_BUTTON_BG,
+            fg=_SECONDARY_BUTTON_FG,
         )
-        self._widgets[_GUIWidgets.PARAMETERS_SAVE].pack(side=_tk.LEFT)
+        self._widgets[_GUIWidgets.PARAMETERS_SAVE].grid(
+            row=0, column=1, sticky="w", padx=(0, _SPACING_8)
+        )
         self._widgets[_GUIWidgets.PARAMETERS_LOAD] = _tk.Button(
             self._frame_parameters,
             text="Load Parameters...",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=self._load_parameters,
+            relief=_tk.GROOVE,
+            bg=_SECONDARY_BUTTON_BG,
+            fg=_SECONDARY_BUTTON_FG,
         )
-        self._widgets[_GUIWidgets.PARAMETERS_LOAD].pack(side=_tk.LEFT)
+        self._widgets[_GUIWidgets.PARAMETERS_LOAD].grid(
+            row=0, column=2, sticky="w"
+        )
 
-        # This should probably be to the right somewhere
-        self._get_additional_options_frame()
+        self._section_options = _tk.LabelFrame(
+            self._content, text="Options", padx=_SPACING_16, pady=_SPACING_16
+        )
+        self._section_options.grid(
+            row=3, column=0, sticky="ew", pady=(0, _SPACING_16)
+        )
+        self._section_options.columnconfigure(0, weight=1)
 
-        # Last frames: advanced options & train in the SE corner:
-        self._frame_advanced_options = _tk.Frame(self._root)
-        self._frame_train = _tk.Frame(self._root)
-        self._frame_update = _tk.Frame(self._root)
-        # Pack must be in reverse order
-        self._frame_update.pack(side=_tk.BOTTOM, anchor="e")
-        self._frame_train.pack(side=_tk.BOTTOM, anchor="e")
-        self._frame_advanced_options.pack(side=_tk.BOTTOM, anchor="e")
+        self._get_additional_options_frame(self._section_options)
+
+        self._section_actions = _tk.LabelFrame(
+            self._content, text="Actions", padx=_SPACING_16, pady=_SPACING_16
+        )
+        self._section_actions.grid(row=4, column=0, sticky="ew")
+        self._section_actions.columnconfigure(0, weight=1)
+        self._frame_actions = _tk.Frame(self._section_actions)
+        self._frame_actions.grid(row=0, column=0, sticky="e")
+        self._frame_actions.columnconfigure(0, weight=1)
 
         # Advanced options for training
         default_architecture = _core.Architecture.STANDARD
@@ -557,24 +624,34 @@ class GUI(object):
         # Window to edit them:
 
         self._widgets[_GUIWidgets.ADVANCED_OPTIONS] = _tk.Button(
-            self._frame_advanced_options,
+            self._frame_actions,
             text="Advanced options...",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=self._open_advanced_options,
+            relief=_tk.GROOVE,
+            bg=_SECONDARY_BUTTON_BG,
+            fg=_SECONDARY_BUTTON_FG,
         )
-        self._widgets[_GUIWidgets.ADVANCED_OPTIONS].pack()
+        self._widgets[_GUIWidgets.ADVANCED_OPTIONS].grid(
+            row=0, column=0, sticky="e", padx=(0, _SPACING_8)
+        )
 
         # Train button
 
         self._widgets[_GUIWidgets.TRAIN] = _tk.Button(
-            self._frame_train,
+            self._frame_actions,
             text="Train",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=self._train,
+            bg=_PRIMARY_BUTTON_BG,
+            fg=_PRIMARY_BUTTON_FG,
+            activebackground=_PRIMARY_BUTTON_BG,
+            activeforeground=_PRIMARY_BUTTON_FG,
+            relief=_tk.FLAT,
         )
-        self._widgets[_GUIWidgets.TRAIN].pack()
+        self._widgets[_GUIWidgets.TRAIN].grid(row=0, column=2, sticky="e")
 
         self._pack_update_button_if_update_is_available()
 
@@ -622,12 +699,12 @@ class GUI(object):
             return
         self._widgets[_GUIWidgets.TRAIN]["state"] = _tk.NORMAL
 
-    def _get_additional_options_frame(self):
+    def _get_additional_options_frame(self, parent: _tk.Frame):
         # Checkboxes
         # TODO get these definitions into __init__()
-        self._frame_checkboxes = _tk.Frame(self._root)
-        self._frame_checkboxes.pack(side=_tk.LEFT)
-        row = 1
+        self._frame_checkboxes = _tk.Frame(parent)
+        self._frame_checkboxes.grid(row=0, column=0, sticky="w")
+        row = 0
 
         def make_checkbox(
             key: _CheckboxKeys, text: str, default_value: bool
@@ -649,9 +726,8 @@ class GUI(object):
         make_checkbox(_CheckboxKeys.SAVE_PLOT, "Save ESR plot automatically", True)
 
         # Grid them:
-        row = 1
         for v in self._checkboxes.values():
-            v.check_button.grid(row=row, column=1, sticky="W")
+            v.check_button.grid(row=row, column=0, sticky="w", pady=(0, _SPACING_8))
             row += 1
 
     def mainloop(self):
@@ -702,13 +778,18 @@ class GUI(object):
                 )
 
         self._widgets[_GUIWidgets.UPDATE] = _tk.Button(
-            self._frame_update,
+            self._frame_actions,
             text=f"Update ({str(version_from)} -> {str(version_to)})",
             width=_BUTTON_WIDTH,
             height=_BUTTON_HEIGHT,
             command=update_nam,
+            relief=_tk.GROOVE,
+            bg=_SECONDARY_BUTTON_BG,
+            fg=_SECONDARY_BUTTON_FG,
         )
-        self._widgets[_GUIWidgets.UPDATE].pack()
+        self._widgets[_GUIWidgets.UPDATE].grid(
+            row=0, column=1, sticky="e", padx=(0, _SPACING_8)
+        )
 
     def _pack_update_button_if_update_is_available(self):
         class UpdateInfo(_NamedTuple):
